@@ -177,6 +177,9 @@ export default function RootLayout({
 
         addLog('success', 'Plan created successfully');
         setActiveTab('todos');
+
+        // Automatically start building all steps
+        await buildAllSteps(data.spec, data.plan);
       } else {
         addLog('error', `Plan creation failed: ${data.error}`);
       }
@@ -185,6 +188,63 @@ export default function RootLayout({
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const buildAllSteps = async (spec: any, plan: any) => {
+    addLog('info', 'Starting automatic build...');
+
+    for (let step = 0; step < plan.steps.length; step++) {
+      // Update todo status to in_progress
+      setTodos(prev =>
+        prev.map((t, i) => (i === step ? { ...t, status: 'in_progress' as const } : t))
+      );
+
+      addLog('info', `Building step ${step + 1}/${plan.steps.length}...`);
+
+      try {
+        const res = await fetch('/api/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'BUILD',
+            payload: {
+              spec,
+              plan,
+              currentStep: step,
+              totalSteps: plan.steps.length,
+            },
+          }),
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          addLog('success', data.summary);
+
+          // Mark step as completed
+          setTodos(prev =>
+            prev.map((t, i) => (i === step ? { ...t, status: 'completed' as const } : t))
+          );
+
+          setCurrentStep(step + 1);
+        } else {
+          addLog('error', `Step ${step + 1} failed: ${data.error}`);
+          setTodos(prev =>
+            prev.map((t, i) => (i === step ? { ...t, status: 'pending' as const } : t))
+          );
+          break; // Stop on error
+        }
+      } catch (error) {
+        addLog('error', `Step ${step + 1} error: ${error}`);
+        break;
+      }
+    }
+
+    // Reload file tree and preview after all steps
+    await loadFileTree();
+    addLog('success', 'Build complete! Refreshing preview...');
+    setActiveTab('preview');
+    setPreviewTrigger(prev => prev + 1);
   };
 
   const handleBuild = async () => {
@@ -349,16 +409,6 @@ export default function RootLayout({
     }
   };
 
-  // Get files as Map for preview
-  const getFilesMap = (): Map<string, string> => {
-    const map = new Map<string, string>();
-    if (selectedFile && fileContent) {
-      map.set(selectedFile, fileContent);
-    }
-    // In production, we'd load all files here
-    return map;
-  };
-
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -448,7 +498,7 @@ export default function RootLayout({
           {/* Tab Content */}
           <div className="flex-1 overflow-hidden">
             {activeTab === 'preview' && (
-              <Preview files={getFilesMap()} trigger={previewTrigger} />
+              <Preview trigger={previewTrigger} />
             )}
             {activeTab === 'logs' && <Logs logs={logs} />}
             {activeTab === 'todos' && <Todos todos={todos} />}

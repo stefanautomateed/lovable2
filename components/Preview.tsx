@@ -4,18 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface PreviewProps {
-  files: Map<string, string>;
   trigger: number; // Increment to rebuild
 }
 
-export function Preview({ files, trigger }: PreviewProps) {
+export function Preview({ trigger }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (files.size === 0) return;
-
     buildPreview();
   }, [trigger]);
 
@@ -24,8 +21,30 @@ export function Preview({ files, trigger }: PreviewProps) {
     setError(null);
 
     try {
-      // Simple HTML preview for now
-      // In production, this would use esbuild-wasm to bundle
+      // Fetch all files from the API
+      const response = await fetch('/api/fs/list');
+      const { tree } = await response.json();
+
+      // Get all file paths from tree
+      const filePaths = extractFilePaths(tree);
+
+      // Fetch content for all files
+      const files = new Map<string, string>();
+      await Promise.all(
+        filePaths.map(async (path) => {
+          try {
+            const res = await fetch(`/api/fs/read?path=${encodeURIComponent(path)}`);
+            const data = await res.json();
+            if (data.content) {
+              files.set(path, data.content);
+            }
+          } catch (err) {
+            console.error(`Failed to load ${path}:`, err);
+          }
+        })
+      );
+
+      // Generate HTML preview
       const html = generateSimpleHTML(files);
 
       if (iframeRef.current) {
@@ -39,6 +58,17 @@ export function Preview({ files, trigger }: PreviewProps) {
       setLoading(false);
     }
   };
+
+  function extractFilePaths(node: any, paths: string[] = []): string[] {
+    if (node.type === 'file') {
+      paths.push(node.path);
+    } else if (node.children) {
+      for (const child of node.children) {
+        extractFilePaths(child, paths);
+      }
+    }
+    return paths;
+  }
 
   return (
     <div className="relative h-full w-full bg-white">
@@ -66,12 +96,27 @@ export function Preview({ files, trigger }: PreviewProps) {
 }
 
 function generateSimpleHTML(files: Map<string, string>): string {
+  // Extract components content
+  const components: Record<string, string> = {};
+  for (const [path, content] of files.entries()) {
+    if (path.startsWith('/components/sections/')) {
+      const componentName = path.split('/').pop()?.replace('.tsx', '') || '';
+      components[componentName] = extractComponentHTML(content);
+    }
+  }
+
   // Extract page content
   const pagePath = '/app/page.tsx';
   const pageContent = files.get(pagePath) || '';
 
-  // Very simple preview - just show the structure
-  // In production, this would use esbuild to bundle properly
+  // Try to extract JSX from page.tsx
+  let mainContent = extractComponentHTML(pageContent);
+
+  // If we have section components, render them
+  if (Object.keys(components).length > 0) {
+    mainContent = Object.values(components).join('\n');
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -79,32 +124,68 @@ function generateSimpleHTML(files: Map<string, string>): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Preview</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
   </style>
 </head>
 <body>
-  <div class="min-h-screen bg-gradient-to-b from-blue-50 to-white">
-    <div class="container mx-auto px-4 py-16">
-      <div class="text-center">
-        <h1 class="text-4xl font-bold text-gray-900 mb-4">Preview Loading...</h1>
+  ${mainContent || `
+    <div class="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center">
+      <div class="text-center px-4">
+        <h1 class="text-4xl font-bold text-gray-900 mb-4">Preview</h1>
         <p class="text-gray-600">
-          This is a simplified preview. The full preview with React bundling will be available soon.
+          Build your website to see the preview here.
         </p>
-        <div class="mt-8 p-6 bg-white rounded-lg shadow-lg">
-          <p class="text-sm text-gray-500 mb-2">Files detected:</p>
-          <ul class="text-left space-y-1">
-            ${Array.from(files.keys()).slice(0, 10).map(p =>
-              `<li class="text-sm font-mono text-gray-700">${p}</li>`
-            ).join('')}
-          </ul>
-        </div>
       </div>
     </div>
-  </div>
+  `}
+  <script>
+    // Initialize Lucide icons
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  </script>
 </body>
 </html>`;
+}
+
+function extractComponentHTML(tsxContent: string): string {
+  // Remove imports and exports
+  let content = tsxContent
+    .replace(/^import .*$/gm, '')
+    .replace(/^export (default )?/gm, '');
+
+  // Try to extract JSX from return statement
+  const returnMatch = content.match(/return\s*\(([\s\S]*?)\);?\s*[}]/);
+  if (returnMatch) {
+    let jsx = returnMatch[1].trim();
+
+    // Convert JSX to HTML
+    jsx = jsx
+      .replace(/className=/g, 'class=')
+      .replace(/\{`([^`]*)`\}/g, '$1')
+      .replace(/\{(['"])(.*?)\1\}/g, '$2')
+      .replace(/<([A-Z]\w+)([^>]*)>/g, '<div$2>') // Replace React components with divs
+      .replace(/<\/[A-Z]\w+>/g, '</div>')
+      // Handle icon components from lucide-react
+      .replace(/<(\w+)\s+className="([^"]*)"[^>]*\/>/g, '<i data-lucide="$1" class="$2"></i>')
+      .replace(/<(\w+)\s+className="([^"]*)"[^>]*><\/\w+>/g, '<i data-lucide="$1" class="$2"></i>');
+
+    return jsx;
+  }
+
+  // Fallback: try to find any JSX-like content
+  const jsxMatch = content.match(/<[^>]+>[\s\S]*<\/[^>]+>/);
+  if (jsxMatch) {
+    return jsxMatch[0]
+      .replace(/className=/g, 'class=')
+      .replace(/\{`([^`]*)`\}/g, '$1');
+  }
+
+  return '';
 }
