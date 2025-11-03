@@ -71,7 +71,7 @@ async function handleBuild(payload: any) {
   const response = await simpleCompletion(
     SYSTEM_RULES,
     implementPrompt(step, { spec, existingFiles, currentStep: currentStep + 1, totalSteps }),
-    { jsonMode: true, temperature: 0.6, maxTokens: 6000 }
+    { jsonMode: true, temperature: 0.6, maxTokens: 4000 }
   );
 
   const implementation = JSON.parse(response);

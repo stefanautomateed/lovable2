@@ -4,7 +4,7 @@
  */
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';

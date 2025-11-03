@@ -163,7 +163,10 @@ All sections are:
 
 ### Environment Variables
 - `OPENAI_API_KEY` - Required for AI features
-- `OPENAI_MODEL` - Optional (default: gpt-4-turbo-preview)
+- `OPENAI_MODEL` - Optional (default: gpt-4o)
+  - Recommended: `gpt-4o` (128k context, 16k max output)
+  - Alternative: `gpt-4-turbo` (128k context, 4k max output)
+  - Alternative: `gpt-4` (8k context, 8k max output)
 
 ### Building for Production
 ```bash
