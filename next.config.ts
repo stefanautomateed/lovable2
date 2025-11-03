@@ -10,12 +10,6 @@ const nextConfig: NextConfig = {
     });
     return config;
   },
-  // Enable API routes to handle larger payloads
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
 };
 
 export default nextConfig;

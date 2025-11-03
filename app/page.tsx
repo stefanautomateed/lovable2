@@ -501,7 +501,7 @@ function FileTreeNode({
       </button>
       {isOpen && node.children && (
         <div>
-          {node.children.map((child) => (
+          {node.children.map((child: FileNode) => (
             <FileTreeNode
               key={child.path}
               node={child}
